@@ -1327,6 +1327,8 @@ Recoverable configuration and initialization warnings use the existing `configWa
 
 Generic runtime warnings use the `warning` notification: `{ threadId?, message }`. App-server emits this for non-fatal warnings from the core event stream, including cases where not all enabled skills are included in the model-visible skills list for a session.
 
+Hook execution emits `hook/started` and `hook/completed` notifications. Their `run` summary includes `displayMessage`, which is non-null when a hook emits UI-only text for clients to show after completion. The message is informational: it is not model context, a warning, or a blocking signal.
+
 ### Notification opt-out
 
 Clients can suppress specific notifications per connection by sending exact method names in `initialize.params.capabilities.optOutNotificationMethods`.

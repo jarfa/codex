@@ -1591,6 +1591,10 @@ pub struct HookRunSummary {
     pub display_order: i64,
     pub status: HookRunStatus,
     pub status_message: Option<String>,
+    /// UI-only text emitted by the hook for display after completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub display_message: Option<String>,
     #[ts(type = "number")]
     pub started_at: i64,
     #[ts(type = "number | null")]

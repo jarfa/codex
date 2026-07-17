@@ -59,6 +59,7 @@ pub(crate) struct StopOutput {
     pub should_block: bool,
     pub reason: Option<String>,
     pub invalid_block_reason: Option<String>,
+    pub display_message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +75,7 @@ pub(crate) struct StatelessHookOutput {
 }
 
 use crate::schema::BlockDecisionWire;
+use crate::schema::HookEventNameWire;
 use crate::schema::HookUniversalOutputWire;
 use crate::schema::PermissionRequestBehaviorWire;
 use crate::schema::PermissionRequestCommandOutputWire;
@@ -282,10 +284,17 @@ pub(crate) fn parse_user_prompt_submit(stdout: &str) -> Option<UserPromptSubmitO
 
 pub(crate) fn parse_stop(stdout: &str) -> Option<StopOutput> {
     let wire: StopCommandOutputWire = parse_json(stdout)?;
+    let display_message = match wire.hook_specific_output {
+        Some(output) if output.hook_event_name == HookEventNameWire::Stop => {
+            output.display_message
+        }
+        Some(_) | None => None,
+    };
     Some(stop_output(
         wire.universal,
         wire.decision,
         wire.reason,
+        display_message,
         "Stop",
     ))
 }
@@ -296,6 +305,7 @@ pub(crate) fn parse_subagent_stop(stdout: &str) -> Option<StopOutput> {
         wire.universal,
         wire.decision,
         wire.reason,
+        None,
         "SubagentStop",
     ))
 }
@@ -304,6 +314,7 @@ fn stop_output(
     universal: HookUniversalOutputWire,
     decision: Option<BlockDecisionWire>,
     reason: Option<String>,
+    display_message: Option<String>,
     event_name: &str,
 ) -> StopOutput {
     let should_block = matches!(decision, Some(BlockDecisionWire::Block));
@@ -321,6 +332,7 @@ fn stop_output(
         should_block: should_block && invalid_block_reason.is_none(),
         reason,
         invalid_block_reason,
+        display_message,
     }
 }
 
@@ -519,6 +531,24 @@ mod tests {
     use serde_json::json;
 
     use super::parse_permission_request;
+    use super::parse_stop;
+
+    #[test]
+    fn stop_ignores_mismatched_hook_event_name() {
+        let parsed = parse_stop(
+            &json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "displayMessage": "done"
+                }
+            })
+            .to_string(),
+        );
+
+        let parsed = parsed.expect("mismatched hookEventName should not abort the parse");
+        assert_eq!(parsed.display_message, None);
+        assert!(!parsed.should_block);
+    }
 
     #[test]
     fn permission_request_rejects_reserved_updated_input_field() {

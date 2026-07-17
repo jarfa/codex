@@ -3786,6 +3786,7 @@ async fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
                 display_order: 0,
                 status: AppServerHookRunStatus::Running,
                 status_message: Some("checking go-workflow input policy".to_string()),
+                display_message: None,
                 started_at: 1,
                 completed_at: None,
                 duration_ms: None,
@@ -3809,6 +3810,7 @@ async fn user_prompt_submit_app_server_hook_notifications_render_snapshot() {
                 display_order: 0,
                 status: AppServerHookRunStatus::Stopped,
                 status_message: Some("checking go-workflow input policy".to_string()),
+                display_message: None,
                 started_at: 1,
                 completed_at: Some(11),
                 duration_ms: Some(10),
@@ -4128,6 +4130,50 @@ async fn completed_same_id_hook_output_survives_restart() {
 }
 
 #[tokio::test]
+async fn stop_hook_display_message_follows_assistant_response() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let hook_id = "stop:0:/tmp/hooks.json";
+
+    complete_assistant_message(
+        &mut chat,
+        "msg-before-stop-hook",
+        "Ready. What would you like to test?",
+        /*phase*/ None,
+    );
+    handle_hook_started(
+        &mut chat,
+        hook_started_run(
+            hook_id,
+            codex_app_server_protocol::HookEventName::Stop,
+            /*status_message*/ None,
+        ),
+    );
+    let mut completed = hook_completed_run(
+        hook_id,
+        codex_app_server_protocol::HookEventName::Stop,
+        codex_app_server_protocol::HookRunStatus::Completed,
+        Vec::new(),
+    );
+    completed.display_message = Some("2026-07-17 11:09:32 CDT".to_string());
+    handle_hook_completed(&mut chat, completed);
+
+    let history = drain_insert_history(&mut rx)
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<String>();
+    assert_chatwidget_snapshot!(
+        "stop_hook_display_message_follows_assistant_response_snapshot",
+        history
+    );
+    assert!(
+        history.contains("Ready. What would you like to test?\n\n• 2026-07-17 11:09:32 CDT"),
+        "display message should follow the assistant response: {history:?}"
+    );
+    assert!(!history.contains("Stop hook"));
+    assert!(!history.contains("warning:"));
+}
+
+#[tokio::test]
 async fn identical_parallel_running_hooks_collapse_to_count() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
@@ -4441,6 +4487,7 @@ fn hook_run_summary(
         display_order: 0,
         status,
         status_message: status_message.map(str::to_string),
+        display_message: None,
         started_at: 1,
         completed_at: (status != codex_app_server_protocol::HookRunStatus::Running).then_some(2),
         duration_ms: (status != codex_app_server_protocol::HookRunStatus::Running).then_some(1),
