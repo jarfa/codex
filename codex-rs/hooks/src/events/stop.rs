@@ -639,6 +639,33 @@ mod tests {
     }
 
     #[test]
+    fn display_message_with_block_decision_carries_both() {
+        let parsed = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"decision":"block","reason":"Too many tokens","hookSpecificOutput":{"hookEventName":"Stop","displayMessage":"2026-07-17 11:09:32 CDT"}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+
+        assert_eq!(parsed.completed.run.status, HookRunStatus::Blocked);
+        assert_eq!(
+            parsed.completed.run.display_message,
+            Some("2026-07-17 11:09:32 CDT".to_string()),
+        );
+        assert_eq!(
+            parsed.completed.run.entries,
+            vec![HookOutputEntry {
+                kind: HookOutputEntryKind::Feedback,
+                text: "Too many tokens".to_string(),
+            }],
+        );
+        assert!(parsed.data.should_block);
+    }
+
+    #[test]
     fn aggregate_results_concatenates_blocking_reasons_in_declaration_order() {
         let aggregate = aggregate_results([
             &StopHandlerData {

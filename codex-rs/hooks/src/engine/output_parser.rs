@@ -288,8 +288,7 @@ pub(crate) fn parse_stop(stdout: &str) -> Option<StopOutput> {
         Some(output) if output.hook_event_name == HookEventNameWire::Stop => {
             output.display_message
         }
-        Some(_) => return None,
-        None => None,
+        Some(_) | None => None,
     };
     Some(stop_output(
         wire.universal,
@@ -535,7 +534,7 @@ mod tests {
     use super::parse_stop;
 
     #[test]
-    fn stop_rejects_mismatched_hook_event_name() {
+    fn stop_ignores_mismatched_hook_event_name() {
         let parsed = parse_stop(
             &json!({
                 "hookSpecificOutput": {
@@ -546,7 +545,9 @@ mod tests {
             .to_string(),
         );
 
-        assert!(parsed.is_none());
+        let parsed = parsed.expect("mismatched hookEventName should not abort the parse");
+        assert_eq!(parsed.display_message, None);
+        assert!(!parsed.should_block);
     }
 
     #[test]
