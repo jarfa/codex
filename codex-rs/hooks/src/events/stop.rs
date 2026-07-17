@@ -211,6 +211,7 @@ fn parse_completed(
     let mut should_block = false;
     let mut block_reason = None;
     let mut continuation_prompt = None;
+    let mut display_message = None;
     let hook_event_name = match handler.event_name {
         HookEventName::Stop | HookEventName::SubagentStop => handler.event_name,
         event_name => {
@@ -237,6 +238,10 @@ fn parse_completed(
                     }
                     _ => unreachable!("validated stop hook event"),
                 } {
+                    display_message = parsed
+                        .display_message
+                        .as_deref()
+                        .and_then(common::trimmed_non_empty);
                     if let Some(system_message) = parsed.universal.system_message {
                         entries.push(HookOutputEntry {
                             kind: HookOutputEntryKind::Warning,
@@ -344,10 +349,9 @@ fn parse_completed(
         },
     }
 
-    let completed = HookCompletedEvent {
-        turn_id,
-        run: dispatcher::completed_summary(handler, &run_result, status, entries),
-    };
+    let mut run = dispatcher::completed_summary(handler, &run_result, status, entries);
+    run.display_message = display_message;
+    let completed = HookCompletedEvent { turn_id, run };
     let continuation_fragments = continuation_prompt
         .map(|prompt| {
             vec![HookPromptFragment::from_single_hook(
@@ -588,6 +592,50 @@ mod tests {
                 text: "hook returned invalid stop hook JSON output".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn display_message_is_carried_separately_from_system_warning() {
+        let parsed = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"systemMessage":"Heads up","hookSpecificOutput":{"hookEventName":"Stop","displayMessage":"2026-07-17 11:09:32 CDT"}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+
+        assert_eq!(
+            (
+                parsed.completed.run.status,
+                parsed.completed.run.display_message,
+                parsed.completed.run.entries,
+            ),
+            (
+                HookRunStatus::Completed,
+                Some("2026-07-17 11:09:32 CDT".to_string()),
+                vec![HookOutputEntry {
+                    kind: HookOutputEntryKind::Warning,
+                    text: "Heads up".to_string(),
+                }],
+            )
+        );
+    }
+
+    #[test]
+    fn blank_display_message_is_ignored() {
+        let parsed = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"hookSpecificOutput":{"hookEventName":"Stop","displayMessage":"  \n "}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+
+        assert_eq!(parsed.completed.run.display_message, None);
     }
 
     #[test]

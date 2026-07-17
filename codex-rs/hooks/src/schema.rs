@@ -456,6 +456,19 @@ pub(crate) struct StopCommandOutputWire {
     /// semantic rule during output parsing rather than in the JSON schema.
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub hook_specific_output: Option<StopHookSpecificOutputWire>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StopHookSpecificOutputWire {
+    #[schemars(schema_with = "stop_hook_event_name_schema")]
+    pub hook_event_name: HookEventNameWire,
+    /// Optional UI-only text surfaced when the Stop hook completes.
+    #[serde(default)]
+    pub display_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -849,6 +862,7 @@ mod tests {
     use super::SUBAGENT_STOP_OUTPUT_FIXTURE;
     use super::SessionStartCommandOutputWire;
     use super::StopCommandInput;
+    use super::StopCommandOutputWire;
     use super::SubagentCommandInputFields;
     use super::SubagentStartCommandInput;
     use super::SubagentStartCommandOutputWire;
@@ -1011,6 +1025,10 @@ mod tests {
         assert_output_hook_event_name_const::<UserPromptSubmitCommandOutputWire>(
             "UserPromptSubmitHookSpecificOutputWire",
             "UserPromptSubmit",
+        );
+        assert_output_hook_event_name_const::<StopCommandOutputWire>(
+            "StopHookSpecificOutputWire",
+            "Stop",
         );
     }
 

@@ -65,6 +65,8 @@ struct HookRunCell {
     event_name: HookEventName,
     /// Optional hook-supplied detail shown next to the running header.
     status_message: Option<String>,
+    /// Optional hook-supplied text shown after completion without warning styling.
+    display_message: Option<String>,
     /// Rendering lifecycle for this run.
     state: HookRunState,
 }
@@ -168,7 +170,7 @@ impl HookCell {
         let mut completed = Vec::new();
         let mut remaining = Vec::new();
         for run in self.runs.drain(..) {
-            if run.state.has_persistent_output() {
+            if run.has_persistent_output() {
                 completed.push(run);
             } else {
                 remaining.push(run);
@@ -206,6 +208,7 @@ impl HookCell {
         if let Some(existing) = self.runs.iter_mut().find(|existing| existing.id == run.id) {
             existing.event_name = run.event_name;
             existing.status_message = run.status_message;
+            existing.display_message = run.display_message;
             existing.state = HookRunState::pending(now);
             return;
         }
@@ -213,6 +216,7 @@ impl HookCell {
             id: run.id,
             event_name: run.event_name,
             status_message: run.status_message,
+            display_message: run.display_message,
             state: HookRunState::pending(now),
         });
     }
@@ -237,6 +241,7 @@ impl HookCell {
         let HookRunSummary {
             event_name,
             status_message,
+            display_message,
             status,
             entries,
             ..
@@ -244,6 +249,7 @@ impl HookCell {
         let existing = &mut self.runs[index];
         existing.event_name = event_name;
         existing.status_message = status_message;
+        existing.display_message = display_message;
         existing.state = HookRunState::completed(status, entries);
         true
     }
@@ -259,6 +265,7 @@ impl HookCell {
             id,
             event_name,
             status_message,
+            display_message,
             status,
             entries,
             ..
@@ -267,6 +274,7 @@ impl HookCell {
             id,
             event_name,
             status_message,
+            display_message,
             state: HookRunState::completed(status, entries),
         });
     }
@@ -457,6 +465,14 @@ impl HookRunCell {
                 );
             }
             HookRunState::Completed { status, entries } => {
+                let display_message = non_empty_display_message(self.display_message.as_deref());
+                if *status == HookRunStatus::Completed
+                    && entries.is_empty()
+                    && let Some(display_message) = display_message
+                {
+                    push_plain_hook_display_message(lines, display_message);
+                    return;
+                }
                 let status_text = format!("{status:?}").to_lowercase();
                 let bullet = hook_completed_bullet(*status, entries);
                 lines.push(
@@ -467,6 +483,9 @@ impl HookRunCell {
                     ]
                     .into(),
                 );
+                if let Some(display_message) = display_message {
+                    push_hook_output_text(lines, "message: ", display_message);
+                }
                 for entry in entries {
                     if !render_full_context && entry.kind == HookOutputEntryKind::Context {
                         lines.extend(hook_context_preview_lines(&entry.text, width));
@@ -480,9 +499,26 @@ impl HookRunCell {
     }
 }
 
+fn push_plain_hook_display_message(lines: &mut Vec<Line<'static>>, display_message: &str) {
+    let mut output_lines = display_message.split('\n');
+    if let Some(first_line) = output_lines.next() {
+        lines.push(vec!["•".bold(), " ".into(), first_line.to_string().into()].into());
+    }
+    for line in output_lines {
+        if line.is_empty() {
+            lines.push("".into());
+        } else {
+            lines.push(format!("{HOOK_OUTPUT_INDENT}{line}").into());
+        }
+    }
+}
+
 fn push_full_hook_output_entry(lines: &mut Vec<Line<'static>>, entry: &HookOutputEntry) {
-    let prefix = hook_output_prefix(entry.kind);
-    let mut output_lines = entry.text.split('\n');
+    push_hook_output_text(lines, hook_output_prefix(entry.kind), &entry.text);
+}
+
+fn push_hook_output_text(lines: &mut Vec<Line<'static>>, prefix: &str, text: &str) {
+    let mut output_lines = text.split('\n');
     if let Some(first_line) = output_lines.next() {
         lines.push(format!("{HOOK_OUTPUT_INDENT}{prefix}{first_line}").into());
     }
@@ -693,6 +729,13 @@ impl HookRunState {
     }
 }
 
+impl HookRunCell {
+    fn has_persistent_output(&self) -> bool {
+        self.state.has_persistent_output()
+            || non_empty_display_message(self.display_message.as_deref()).is_some()
+    }
+}
+
 impl RunningHookGroup {
     fn new(key: RunningHookGroupKey, start_time: Option<Instant>) -> Self {
         Self {
@@ -781,7 +824,13 @@ pub(crate) fn new_completed_hook_cell(run: HookRunSummary, animations_enabled: b
 
 /// Returns true for hook completions that should be invisible in history.
 fn hook_run_is_quiet_success(run: &HookRunSummary) -> bool {
-    run.status == HookRunStatus::Completed && run.entries.is_empty()
+    run.status == HookRunStatus::Completed
+        && run.entries.is_empty()
+        && non_empty_display_message(run.display_message.as_deref()).is_none()
+}
+
+fn non_empty_display_message(display_message: Option<&str>) -> Option<&str> {
+    display_message.filter(|message| !message.trim().is_empty())
 }
 
 fn hook_completed_bullet(status: HookRunStatus, entries: &[HookOutputEntry]) -> Span<'static> {
@@ -966,6 +1015,41 @@ mod tests {
     }
 
     #[test]
+    fn completed_hook_display_message_omits_lifecycle_chrome() {
+        let cell = completed_hook_cell_with_display_message(
+            HookRunStatus::Completed,
+            "2026-07-17 11:09:32 CDT",
+            Vec::new(),
+        );
+        let expected = vec!["• 2026-07-17 11:09:32 CDT".to_string()];
+
+        assert_eq!(line_texts(&cell.display_lines(/*width*/ 80)), expected);
+        assert_eq!(line_texts(&cell.transcript_lines(/*width*/ 80)), expected);
+        assert_eq!(line_texts(&cell.raw_lines()), expected);
+    }
+
+    #[test]
+    fn failed_hook_keeps_lifecycle_chrome_around_display_message() {
+        let cell = completed_hook_cell_with_display_message(
+            HookRunStatus::Failed,
+            "2026-07-17 11:09:32 CDT",
+            vec![HookOutputEntry {
+                kind: HookOutputEntryKind::Error,
+                text: "hook exited with code 1".to_string(),
+            }],
+        );
+
+        assert_eq!(
+            line_texts(&cell.display_lines(/*width*/ 80)),
+            vec![
+                "• Stop hook (failed)".to_string(),
+                "  message: 2026-07-17 11:09:32 CDT".to_string(),
+                "  error: hook exited with code 1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn pending_hook_does_not_animate_transcript() {
         let cell =
             HookCell::new_active(hook_run_summary("hook-1"), /*animations_enabled*/ true);
@@ -1031,6 +1115,22 @@ mod tests {
         HookCell::new_completed(run, /*animations_enabled*/ false)
     }
 
+    fn completed_hook_cell_with_display_message(
+        status: HookRunStatus,
+        display_message: &str,
+        entries: Vec<HookOutputEntry>,
+    ) -> HookCell {
+        let mut run = hook_run_summary("hook-1");
+        run.event_name = HookEventName::Stop;
+        run.status = status;
+        run.status_message = None;
+        run.display_message = Some(display_message.to_string());
+        run.completed_at = Some(2);
+        run.duration_ms = Some(1);
+        run.entries = entries;
+        HookCell::new_completed(run, /*animations_enabled*/ false)
+    }
+
     fn line_texts(lines: &[Line<'_>]) -> Vec<String> {
         lines.iter().map(line_text).collect()
     }
@@ -1054,6 +1154,7 @@ mod tests {
             display_order: 0,
             status: HookRunStatus::Running,
             status_message: Some("checking output policy".to_string()),
+            display_message: None,
             started_at: 1,
             completed_at: None,
             duration_ms: None,

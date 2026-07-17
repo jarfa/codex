@@ -109,6 +109,8 @@ pub struct HookRunSummary {
     pub display_order: i64,
     pub status: HookRunStatus,
     pub status_message: Option<String>,
+    /// UI-only text emitted by the hook for display after completion.
+    pub display_message: Option<String>,
     pub started_at: i64,
     pub completed_at: Option<i64>,
     pub duration_ms: Option<i64>,
@@ -128,6 +130,7 @@ impl From<CoreHookRunSummary> for HookRunSummary {
             display_order: value.display_order,
             status: value.status.into(),
             status_message: value.status_message,
+            display_message: value.display_message,
             started_at: value.started_at,
             completed_at: value.completed_at,
             duration_ms: value.duration_ms,

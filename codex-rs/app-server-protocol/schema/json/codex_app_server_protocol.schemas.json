@@ -11288,6 +11288,13 @@
               "null"
             ]
           },
+          "displayMessage": {
+            "description": "UI-only text emitted by the hook for display after completion.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "displayOrder": {
             "format": "int64",
             "type": "integer"
