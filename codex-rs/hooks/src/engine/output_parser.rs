@@ -75,6 +75,7 @@ pub(crate) struct StatelessHookOutput {
 }
 
 use crate::schema::BlockDecisionWire;
+use crate::schema::HookEventNameWire;
 use crate::schema::HookUniversalOutputWire;
 use crate::schema::PermissionRequestBehaviorWire;
 use crate::schema::PermissionRequestCommandOutputWire;
@@ -283,9 +284,13 @@ pub(crate) fn parse_user_prompt_submit(stdout: &str) -> Option<UserPromptSubmitO
 
 pub(crate) fn parse_stop(stdout: &str) -> Option<StopOutput> {
     let wire: StopCommandOutputWire = parse_json(stdout)?;
-    let display_message = wire
-        .hook_specific_output
-        .and_then(|output| output.display_message);
+    let display_message = match wire.hook_specific_output {
+        Some(output) if output.hook_event_name == HookEventNameWire::Stop => {
+            output.display_message
+        }
+        Some(_) => return None,
+        None => None,
+    };
     Some(stop_output(
         wire.universal,
         wire.decision,
@@ -527,6 +532,22 @@ mod tests {
     use serde_json::json;
 
     use super::parse_permission_request;
+    use super::parse_stop;
+
+    #[test]
+    fn stop_rejects_mismatched_hook_event_name() {
+        let parsed = parse_stop(
+            &json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "displayMessage": "done"
+                }
+            })
+            .to_string(),
+        );
+
+        assert!(parsed.is_none());
+    }
 
     #[test]
     fn permission_request_rejects_reserved_updated_input_field() {
